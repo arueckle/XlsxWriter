@@ -21,10 +21,10 @@ including:
 * Cell comments.
 * Integration with Pandas.
 * Textboxes.
-* Memory optimisation mode for writing large files.
+* Memory optimization mode for writing large files.
 
-It supports Python 2.5, 2.6, 2.7, 3.1, 3.2, 3.3, 3.4, Jython and PyPy and uses
-standard libraries only.
+It supports Python 2.5, 2.6, 2.7, 3.1, 3.2, 3.3, 3.4, 3.5, Jython and PyPy and
+uses standard libraries only.
 
 Here is a simple example:
 
@@ -60,7 +60,7 @@ Here is a simple example:
 
 .. image:: https://raw.github.com/jmcnamara/XlsxWriter/master/dev/docs/source/_images/demo.png
 
-See the full documentation at: http://xlsxwriter.readthedocs.org
+See the full documentation at: https://xlsxwriter.readthedocs.io
 
-Release notes: http://xlsxwriter.readthedocs.org/changes.html
+Release notes: https://xlsxwriter.readthedocs.io/changes.html
 

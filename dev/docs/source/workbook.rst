@@ -45,11 +45,12 @@ The constructor options are:
   Note, in this mode a row of data is written and then discarded when a cell
   in a new row is added via one of the worksheet ``write_()`` methods.
   Therefore, once this mode is active, data should be written in sequential
-  row order.
+  row order. For this reason the :func:`add_table()` and :func:`merge_range()`
+  Worksheet methods don't work in this mode.
 
   See :ref:`memory_perf` for more details.
 
-* **tmpdir**: ``XlsxWriter`` stores worksheet data in a temporary files prior
+* **tmpdir**: ``XlsxWriter`` stores workbook data in temporary files prior
   to assembling the final XLSX file. The temporary files are created in the
   system's temp directory. If the default temporary directory isn't accessible
   to your application, or doesn't contain enough space, you can specify an
@@ -103,6 +104,19 @@ The constructor options are:
 
       xlsxwriter.Workbook(filename, {'default_date_format': 'dd/mm/yy'})
 
+* **remove_timezone**: Excel doesn't support timezones in datetimes/times so
+  there isn't any fail-safe way that XlsxWriter can map a Python timezone aware
+  datetime into an Excel datetime in functions such as
+  :func:`write_datetime`. As such the user should convert and remove the
+  timezones in some way that make sense according to their
+  requirements. Alternatively the ``remove_timezone`` option can be used to
+  strip the timezone from datetime values. The default is ``False``. To enable
+  this option use::
+
+      workbook = xlsxwriter.Workbook(filename, {'remove_timezone': True})
+
+  See also :ref:`Timezone Handling in XlsxWriter <timezone_handling>`.
+
 * **date_1904**: Excel for Windows uses a default epoch of 1900 and Excel for
   Mac uses an epoch of 1904. However, Excel on either platform will convert
   automatically between one system and the other. XlsxWriter stores dates in
@@ -137,7 +151,7 @@ It is possible to write files to in-memory strings using StringIO as follows::
 To avoid the use of any temporary files and keep the entire file in-memory use
 the ``in_memory`` constructor option shown above.
 
-See also :ref:`ex_http_server`.
+See also :ref:`ex_http_server` and :ref:`ex_http_server3`.
 
 
 workbook.add_worksheet()
@@ -287,16 +301,10 @@ workbook.close()
    Close the Workbook object and write the XLSX file.
 
 The workbook ``close()`` method writes all data to the xlsx file and closes
-it. This is a mandatory method call::
+it::
 
     workbook.close()
 
-.. Note::
-
-   Earlier versions of XlsxWriter allowed an implicit ``close()`` that was
-   triggered by the garbage collector. However, this proved to be too
-   problematic and non-deterministic. An explicit ``close()`` is now
-   recommended in all XlsxWriter programs.
 
 The ``Workbook`` object also works using the ``with`` context manager. In
 which case it doesn't need an explicit `close()` statement::
@@ -309,18 +317,47 @@ which case it doesn't need an explicit `close()` statement::
 The workbook will close automatically when exiting the scope of the ``with``
 statement.
 
+.. Note::
+
+   Unless you are using the ``with`` context manager you should always use an
+   explicit ``close()`` in your XlsxWriter application.
+
+
+workbook.set_size()
+-------------------
+
+.. py:function:: set_size(width, height)
+
+   Set the size of a workbook window.
+
+   :param int width:  Width of the window in pixels.
+   :param int height: Height of the window in pixels.
+
+The ``set_size()`` method can be used to set the size of a workbook window::
+
+    workbook,set_size(1200, 800)
+
+The Excel window size was used in Excel 2007 to define the width and height of
+a workbook window within the Multiple Document Interface (MDI). In later
+versions of Excel for Windows this interface was dropped. This method is
+currently only useful when setting the window size in Excel for Mac 2011. The
+units are pixels and the default size is 1073 x 644.
+
+Note, this doesn't equate exactly to the Excel for Mac pixel size since it is
+based on the original Excel 2007 for Windows sizing. Some trial and error may
+be required to get an exact size.
 
 
 workbook.set_properties()
 -------------------------
 
-.. py:function:: set_properties()
+.. py:function:: set_properties(properties)
 
    Set the document properties such as Title, Author etc.
 
    :param dict properties: Dictionary of document properties.
 
-The ``set_properties`` method can be used to set the document properties of the
+The ``set_properties()`` method can be used to set the document properties of the
 Excel file created by ``XlsxWriter``. These properties are visible when you
 use the ``Office Button -> Prepare -> Properties`` option in Excel and are
 also available to external applications that read or index windows files.
@@ -336,6 +373,7 @@ The properties that can be set are:
 * ``keywords``
 * ``comments``
 * ``status``
+* ``hyperlink_base``
 
 The properties are all optional and should be passed in dictionary format as
 follows::
@@ -353,6 +391,57 @@ follows::
 .. image:: _images/doc_properties.png
 
 See also :ref:`ex_doc_properties`.
+
+
+workbook.set_custom_property()
+------------------------------
+
+.. py:function:: set_custom_property(name, value [, property_type])
+
+   Set a custom document property.
+
+   :param name:          The name of the custom property.
+   :param value:         The value of the custom property (various types).
+   :param property_type: The type of the property. Optional.
+   :type name:           string
+   :type property_type:  string
+
+
+The ``set_custom_property()`` method can be used to set one or more custom
+document properties not covered by the standard properties in the
+``set_properties()`` method above.
+
+For example::
+
+    date = datetime.strptime('2016-12-12', '%Y-%m-%d')
+
+    workbook.set_custom_property('Checked by',       'Eve')
+    workbook.set_custom_property('Date completed',   date)
+    workbook.set_custom_property('Document number',  12345)
+    workbook.set_custom_property('Reference number', 1.2345)
+    workbook.set_custom_property('Has review',       True)
+    workbook.set_custom_property('Signed off',       False)
+
+.. image:: _images/custom_properties.png
+
+
+Date parameters should be :class:`datetime.datetime` objects.
+
+The optional ``property_type`` parameter can be used to set an explicit type
+for the custom property, just like in Excel. The available types are::
+
+    text
+    date
+    number
+    bool
+
+However, in almost all cases the type will be inferred correctly from the
+Python type, like in the example above.
+
+
+Note: the ``name`` and ``value`` parameters are limited to 255 characters by
+Excel.
+
 
 workbook.define_name()
 ----------------------
@@ -393,7 +482,7 @@ Excel convention and enclose it in single quotes::
 
     workbook.define_name("'New Data'!Sales", '=Sheet2!$G$1:$G$10')
 
-The rules for names in Excel are explained in the `Miscrosoft Office
+The rules for names in Excel are explained in the `Microsoft Office
 documentation
 <http://office.microsoft.com/en-001/excel-help/define-and-use-names-in-formulas-HA010147120.aspx>`_.
 
@@ -479,6 +568,23 @@ workbook::
     for worksheet in workbook.worksheets():
         worksheet.write('A1', 'Hello')
 
+
+workbook.get_worksheet_by_name()
+--------------------------------
+
+.. function:: get_worksheet_by_name(name)
+
+   Return a worksheet object in the workbook using the sheetname.
+
+   :param string name: Name of worksheet that you wish to retrieve.
+   :rtype: A :ref:`worksheet <Worksheet>` object.
+
+The ``get_worksheet_by_name()`` method returns the worksheet or chartsheet
+object with the the given ``name`` or ``None`` if it isn't found::
+
+    worksheet = workbook.get_worksheet_by_name('Sheet1')
+
+
 workbook.set_calc_mode()
 ------------------------
 
@@ -511,5 +617,5 @@ workbook.use_zip64()
 
    Allow ZIP64 extensions when writing xlsx file zip container.
 
-Use ZIP64 extensions when writing the xlsx file zip container and allow files
+Use ZIP64 extensions when writing the xlsx file zip container to allow files
 greater than 4 GB.

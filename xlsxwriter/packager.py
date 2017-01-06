@@ -2,12 +2,12 @@
 #
 # Packager - A class for writing the Excel XLSX Worksheet file.
 #
-# Copyright 2013-2015, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2016, John McNamara, jmcnamara@cpan.org
 #
 
 # Standard packages.
 import os
-import sys
+import stat
 import tempfile
 from shutil import copy
 
@@ -15,16 +15,17 @@ from .compatibility import StringIO
 from .compatibility import BytesIO
 
 # Package imports.
-from xlsxwriter.app import App
-from xlsxwriter.contenttypes import ContentTypes
-from xlsxwriter.core import Core
-from xlsxwriter.relationships import Relationships
-from xlsxwriter.sharedstrings import SharedStrings
-from xlsxwriter.styles import Styles
-from xlsxwriter.theme import Theme
-from xlsxwriter.vml import Vml
-from xlsxwriter.table import Table
-from xlsxwriter.comments import Comments
+from .app import App
+from .contenttypes import ContentTypes
+from .core import Core
+from .custom import Custom
+from .relationships import Relationships
+from .sharedstrings import SharedStrings
+from .styles import Styles
+from .theme import Theme
+from .vml import Vml
+from .table import Table
+from .comments import Comments
 
 
 class Packager(object):
@@ -86,7 +87,6 @@ class Packager(object):
         self.tmpdir = ''
         self.in_memory = False
         self.workbook = None
-        self.sheet_names = []
         self.worksheet_count = 0
         self.chartsheet_count = 0
         self.chart_count = 0
@@ -114,7 +114,6 @@ class Packager(object):
     def _add_workbook(self, workbook):
         # Add the Excel::Writer::XLSX::Workbook object to the package.
         self.workbook = workbook
-        self.sheet_names = workbook.sheetnames
         self.chart_count = len(workbook.charts)
         self.drawing_count = len(workbook.drawings)
         self.num_vml_files = workbook.num_vml_files
@@ -140,6 +139,7 @@ class Packager(object):
         self._write_shared_strings_file()
         self._write_app_file()
         self._write_core_file()
+        self._write_custom_file()
         self._write_content_types_file()
         self._write_styles_file()
         self._write_theme_file()
@@ -209,6 +209,12 @@ class Packager(object):
 
         index = 1
         for chart in self.workbook.charts:
+            # Check that the chart has at least one data series.
+            if not chart.series:
+                raise Exception("Chart%d must contain at least one "
+                                "data series. See chart.add_series()."
+                                % index)
+
             chart._set_xml_writer(self._filename('xl/charts/chart'
                                                  + str(index) + '.xml'))
             chart._assemble_xml_file()
@@ -325,6 +331,18 @@ class Packager(object):
         core._set_xml_writer(self._filename('docProps/core.xml'))
         core._assemble_xml_file()
 
+    def _write_custom_file(self):
+        # Write the custom.xml file.
+        properties = self.workbook.custom_properties
+        custom = Custom()
+
+        if not len(properties):
+            return
+
+        custom._set_properties(properties)
+        custom._set_xml_writer(self._filename('docProps/custom.xml'))
+        custom._assemble_xml_file()
+
     def _write_content_types_file(self):
         # Write the ContentTypes.xml file.
         content = ContentTypes()
@@ -366,6 +384,10 @@ class Packager(object):
         # Add vbaProjectSignature if present.
         if self.workbook.vba_project_signature:
             content._add_vba_project_signature()
+
+        # Add the custom properties if present.
+        if self.workbook.custom_properties:
+            content._add_custom_properties()
 
         content._set_xml_writer(self._filename('[Content_Types].xml'))
         content._assemble_xml_file()
@@ -425,18 +447,19 @@ class Packager(object):
         rels = Relationships()
 
         rels._add_document_relationship('/officeDocument', 'xl/workbook.xml')
+
         rels._add_package_relationship('/metadata/core-properties',
                                        'docProps/core.xml')
+
         rels._add_document_relationship('/extended-properties',
                                         'docProps/app.xml')
 
-        for custom_ui, version in self.workbook.custom_uis:
-            xml_custom_ui_name = os.path.split(custom_ui)[1]
-            rels._add_ms_package_relationship('/ui/extensibility',
-                                              'customUI/%s' % xml_custom_ui_name,
-                                              version=version)
+        if self.workbook.custom_properties:
+            rels._add_document_relationship('/custom-properties',
+                                            'docProps/custom.xml')
 
         rels._set_xml_writer(self._filename('_rels/.rels'))
+
         rels._assemble_xml_file()
 
     def _write_workbook_rels_file(self):
@@ -598,6 +621,12 @@ class Packager(object):
                 else:
                     copy(filename, os_filename)
 
+                    # Allow copies of Windows read-only images to be deleted.
+                    try:
+                        os.chmod(os_filename,
+                                 os.stat(os_filename).st_mode | stat.S_IWRITE)
+                    except:
+                        pass
             else:
                 # For in-memory mode we read the image into a stream.
                 if image_data:

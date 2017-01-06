@@ -2,7 +2,7 @@
 #
 # Tests for XlsxWriter.
 #
-# Copyright (c), 2013-2015, John McNamara, jmcnamara@cpan.org
+# Copyright (c), 2013-2016, John McNamara, jmcnamara@cpan.org
 #
 
 from ..excel_comparsion_test import ExcelComparisonTest
@@ -42,7 +42,7 @@ class TestCompareXLSXFiles(ExcelComparisonTest):
                    }
         )
 
-        # The following should be rejected bacuase the input title is too long.
+        # The following should be rejected becuase the input title is too long.
         input_title = 'This is the longest input title12'
         input_message = 'This is the longest input message ' + ('a' * 221)
         values = [

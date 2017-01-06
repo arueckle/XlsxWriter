@@ -2,7 +2,7 @@
 #
 # ContentTypes - A class for writing the Excel XLSX ContentTypes file.
 #
-# Copyright 2013-2015, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2016, John McNamara, jmcnamara@cpan.org
 #
 
 import copy
@@ -153,6 +153,11 @@ class ContentTypes(xmlwriter.XMLwriter):
     def _add_vba_project_signature(self):
         signature_path = '/xl/vbaProjectSignature.bin'
         self._add_override((signature_path, 'application/vnd.ms-office.vbaProjectSignature'))
+
+    def _add_custom_properties(self):
+        # Add the custom properties to the ContentTypes overrides.
+        self._add_override(('/docProps/custom.xml',
+                           app_document + 'custom-properties+xml'))
 
     ###########################################################################
     #

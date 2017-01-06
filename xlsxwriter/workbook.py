@@ -2,7 +2,7 @@
 #
 # Workbook - A class for writing the Excel XLSX Workbook file.
 #
-# Copyright 2013-2015, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2016, John McNamara, jmcnamara@cpan.org
 #
 
 # Standard packages.
@@ -15,25 +15,25 @@ from datetime import datetime
 from zipfile import ZipFile, ZIP_DEFLATED
 from struct import unpack
 
-from .compatibility import str_types
+from .compatibility import int_types, num_types, str_types, force_unicode
 
 # Package imports.
 from . import xmlwriter
-from xlsxwriter.worksheet import Worksheet
-from xlsxwriter.chartsheet import Chartsheet
-from xlsxwriter.sharedstrings import SharedStringTable
-from xlsxwriter.format import Format
-from xlsxwriter.packager import Packager
+from .worksheet import Worksheet
+from .chartsheet import Chartsheet
+from .sharedstrings import SharedStringTable
+from .format import Format
+from .packager import Packager
 from .utility import xl_cell_to_rowcol
-from xlsxwriter.chart_area import ChartArea
-from xlsxwriter.chart_bar import ChartBar
-from xlsxwriter.chart_column import ChartColumn
-from xlsxwriter.chart_doughnut import ChartDoughnut
-from xlsxwriter.chart_line import ChartLine
-from xlsxwriter.chart_pie import ChartPie
-from xlsxwriter.chart_radar import ChartRadar
-from xlsxwriter.chart_scatter import ChartScatter
-from xlsxwriter.chart_stock import ChartStock
+from .chart_area import ChartArea
+from .chart_bar import ChartBar
+from .chart_column import ChartColumn
+from .chart_doughnut import ChartDoughnut
+from .chart_line import ChartLine
+from .chart_pie import ChartPie
+from .chart_radar import ChartRadar
+from .chart_scatter import ChartScatter
+from .chart_stock import ChartStock
 
 
 class Workbook(xmlwriter.XMLwriter):
@@ -69,6 +69,7 @@ class Workbook(xmlwriter.XMLwriter):
         self.optimization = options.get('constant_memory', False)
         self.in_memory = options.get('in_memory', False)
         self.excel2003_style = options.get('excel2003_style', False)
+        self.remove_timezone = options.get('remove_timezone', False)
         self.default_format_properties = \
             options.get('default_format_properties', {})
 
@@ -84,7 +85,7 @@ class Workbook(xmlwriter.XMLwriter):
         self.worksheets_objs = []
         self.charts = []
         self.drawings = []
-        self.sheetnames = []
+        self.sheetnames = {}
         self.formats = []
         self.xf_formats = []
         self.xf_format_indices = {}
@@ -97,7 +98,8 @@ class Workbook(xmlwriter.XMLwriter):
         self.named_ranges = []
         self.custom_colors = []
         self.doc_properties = {}
-        self.localtime = datetime.now()
+        self.custom_properties = []
+        self.createtime = datetime.utcnow()
         self.num_vml_files = 0
         self.num_comment_files = 0
         self.x_window = 240
@@ -258,6 +260,7 @@ class Workbook(xmlwriter.XMLwriter):
 
         chart.embedded = True
         chart.date_1904 = self.date_1904
+        chart.remove_timezone = self.remove_timezone
 
         self.charts.append(chart)
 
@@ -278,7 +281,8 @@ class Workbook(xmlwriter.XMLwriter):
 
         """
         if not is_stream and not os.path.exists(vba_project):
-            warn("VBA project binary file '%s' not found." % vba_project)
+            warn("VBA project binary file '%s' not found."
+                 % force_unicode(vba_project))
             return -1
 
         if signature:
@@ -311,7 +315,7 @@ class Workbook(xmlwriter.XMLwriter):
 
     def close(self):
         """
-        Call finalisation code and close file.
+        Call finalization code and close file.
 
         Args:
             None.
@@ -323,6 +327,29 @@ class Workbook(xmlwriter.XMLwriter):
         if not self.fileclosed:
             self.fileclosed = 1
             self._store_workbook()
+
+    def set_size(self, width, height):
+        """
+        Set the size of a workbook window.
+
+        Args:
+            width:  Width  of the window in pixels.
+            height: Height of the window in pixels.
+
+        Returns:
+            Nothing.
+
+        """
+        # Convert the width/height to twips at 96 dpi.
+        if width:
+            self.window_width = int(width * 1440 / 96)
+        else:
+            self.window_width = 16095
+
+        if height:
+            self.window_height = int(height * 1440 / 96)
+        else:
+            self.window_height = 9660
 
     def set_properties(self, properties):
         """
@@ -337,9 +364,55 @@ class Workbook(xmlwriter.XMLwriter):
         """
         self.doc_properties = properties
 
+    def set_custom_property(self, name, value, property_type=None):
+        """
+        Set a custom document property.
+
+        Args:
+            name:          The name of the custom property.
+            value:         The value of the custom property.
+            property_type: The type of the custom property. Optional.
+
+        Returns:
+            Nothing.
+
+        """
+        if name is None or value is None:
+            warn("The name and value parameters must be non-None in "
+                 "set_custom_property()")
+            return -1
+
+        if property_type is None:
+            # Determine the property type from the Python type.
+            if isinstance(value, bool):
+                property_type = 'bool'
+            elif isinstance(value, datetime):
+                property_type = 'date'
+            elif isinstance(value, int_types):
+                property_type = 'number_int'
+            elif isinstance(value, num_types):
+                property_type = 'number'
+            else:
+                property_type = 'text'
+
+        if property_type == 'date':
+            value = value.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        if property_type == 'text' and len(value) > 255:
+            warn("Length of 'value' parameter exceeds Excel's limit of 255 "
+                 "characters in set_custom_property(): '%s'" %
+                 force_unicode(value))
+
+        if len(name) > 255:
+            warn("Length of 'name' parameter exceeds Excel's limit of 255 "
+                 "characters in set_custom_property(): '%s'" %
+                 force_unicode(name))
+
+        self.custom_properties.append((name, value, property_type))
+
     def set_calc_mode(self, mode, calc_id=None):
         """
-        Set the Excel caclcuation mode for the workbook.
+        Set the Excel calculation mode for the workbook.
 
         Args:
             mode: String containing one of:
@@ -394,28 +467,31 @@ class Workbook(xmlwriter.XMLwriter):
 
             # Warn if the sheet index wasn't found.
             if sheet_index is None:
-                warn("Unknown sheet name '%s' in defined_name()" % sheetname)
+                warn("Unknown sheet name '%s' in defined_name()"
+                     % force_unicode(sheetname))
                 return -1
         else:
             # Use -1 to indicate global names.
             sheet_index = -1
 
         # Warn if the defined name contains invalid chars as defined by Excel.
-        if (not re.match(r'^[\w\\][\w.]*$', name, re.UNICODE)
+        if (not re.match(r'^[\w\\][\w\\.]*$', name, re.UNICODE)
                 or re.match(r'^\d', name)):
-            warn("Invalid Excel characters in defined_name(): '%s'" % name)
+            warn("Invalid Excel characters in defined_name(): '%s'"
+                 % force_unicode(name))
             return -1
 
         # Warn if the defined name looks like a cell name.
         if re.match(r'^[a-zA-Z][a-zA-Z]?[a-dA-D]?[0-9]+$', name):
-            warn("Name looks like a cell name in defined_name(): '%s'" % name)
+            warn("Name looks like a cell name in defined_name(): '%s'"
+                 % force_unicode(name))
             return -1
 
         # Warn if the name looks like a R1C1 cell reference.
         if (re.match(r'^[rcRC]$', name)
                 or re.match(r'^[rcRC]\d+[rcRC]\d+$', name)):
             warn("Invalid name '%s' like a RC cell ref in defined_name()"
-                 % name)
+                 % force_unicode(name))
             return -1
 
         self.defined_names.append([name, sheet_index, formula, False])
@@ -432,6 +508,19 @@ class Workbook(xmlwriter.XMLwriter):
 
         """
         return self.worksheets_objs
+
+    def get_worksheet_by_name(self, name):
+        """
+        Return a worksheet object in the workbook using the sheetname.
+
+        Args:
+            name: The name of the worksheet.
+
+        Returns:
+            A worksheet object or None.
+
+        """
+        return self.sheetnames.get(name)
 
     def use_zip64(self):
         """
@@ -575,7 +664,7 @@ class Workbook(xmlwriter.XMLwriter):
         sheet_index = len(self.worksheets_objs)
         name = self._check_sheetname(name, is_chartsheet)
 
-        # Initialisation data to pass to the worksheet.
+        # Initialization data to pass to the worksheet.
         init_data = {
             'name': name,
             'index': sheet_index,
@@ -591,6 +680,7 @@ class Workbook(xmlwriter.XMLwriter):
             'default_date_format': self.default_date_format,
             'default_url_format': self.default_url_format,
             'excel2003_style': self.excel2003_style,
+            'remove_timezone': self.remove_timezone,
         }
 
         if is_chartsheet:
@@ -601,7 +691,7 @@ class Workbook(xmlwriter.XMLwriter):
         worksheet._initialize(init_data)
 
         self.worksheets_objs.append(worksheet)
-        self.sheetnames.append(name)
+        self.sheetnames[name] = worksheet
 
         return worksheet
 
@@ -807,7 +897,7 @@ class Workbook(xmlwriter.XMLwriter):
         fills['0:0:0'] = 0
         fills['17:0:0'] = 1
 
-        # Store the DXF colours separately since them may be reversed below.
+        # Store the DXF colors separately since them may be reversed below.
         for xf_format in self.dxf_formats:
             if xf_format.pattern or xf_format.bg_color or xf_format.fg_color:
                 xf_format.has_dxf_fill = 1
@@ -816,10 +906,10 @@ class Workbook(xmlwriter.XMLwriter):
 
         for xf_format in self.xf_formats:
             # The following logical statements jointly take care of special
-            # cases in relation to cell colours and patterns:
+            # cases in relation to cell colors and patterns:
             # 1. For a solid fill (_pattern == 1) Excel reverses the role of
-            # foreground and background colours, and
-            # 2. If the user specifies a foreground or background colour
+            # foreground and background colors, and
+            # 2. If the user specifies a foreground or background color
             # without a pattern they probably wanted a solid fill, so we fill
             # in the defaults.
             if (xf_format.pattern == 1 and xf_format.bg_color != 0
@@ -899,21 +989,21 @@ class Workbook(xmlwriter.XMLwriter):
         # Sort the list of list of internal and user defined names in
         # the same order as used by Excel.
 
-        # Add a normalise name string to each list for sorting.
+        # Add a normalize name string to each list for sorting.
         for name_list in names:
             (defined_name, _, sheet_name, _) = name_list
 
-            # Normalise the defined name by removing any leading '_xmln.'
+            # Normalize the defined name by removing any leading '_xmln.'
             # from internal names and lowercasing the string.
             defined_name = defined_name.replace('_xlnm.', '').lower()
 
-            # Normalise the sheetname by removing the leading quote and
+            # Normalize the sheetname by removing the leading quote and
             # lowercasing the string.
             sheet_name = sheet_name.lstrip("'").lower()
 
             name_list.append(defined_name + "::" + sheet_name)
 
-        # Sort based on the normalised key.
+        # Sort based on the normalized key.
         names.sort(key=operator.itemgetter(4))
 
         # Remove the extra key used for sorting.
@@ -1073,6 +1163,12 @@ class Workbook(xmlwriter.XMLwriter):
         if not image_data:
             fh.close()
 
+        # Set a default dpi for images with 0 dpi.
+        if x_dpi == 0:
+            x_dpi = 96
+        if y_dpi == 0:
+            y_dpi = 96
+
         return image_type, width, height, image_name, x_dpi, y_dpi
 
     def _process_png(self, data):
@@ -1156,6 +1252,12 @@ class Workbook(xmlwriter.XMLwriter):
                     x_dpi = x_density * 2.54
                     y_dpi = y_density * 2.54
 
+                # Workaround for incorrect dpi.
+                if x_dpi == 1:
+                    x_dpi = 96
+                if y_dpi == 1:
+                    y_dpi = 96
+
             if marker == 0xFFDA:
                 end_marker = True
                 continue
@@ -1205,7 +1307,7 @@ class Workbook(xmlwriter.XMLwriter):
         sheetname = sheetname.strip("'")
 
         if sheetname in self.sheetnames:
-            return self.sheetnames.index(sheetname)
+            return self.sheetnames[sheetname].index
         else:
             return None
 
@@ -1273,6 +1375,7 @@ class Workbook(xmlwriter.XMLwriter):
     def _prepare_tables(self):
         # Set the table ids for the worksheet tables.
         table_id = 0
+        seen = {}
 
         for sheet in self.worksheets():
             table_count = len(sheet.tables)
@@ -1280,11 +1383,11 @@ class Workbook(xmlwriter.XMLwriter):
             if not table_count:
                 continue
 
-            sheet._prepare_tables(table_id + 1)
+            sheet._prepare_tables(table_id + 1, seen)
             table_id += table_count
 
     def _add_chart_data(self):
-        # Add "cached" data to charts to provide the numCache and strCacher
+        # Add "cached" data to charts to provide the numCache and strCache
         # data for series and title/axis ranges.
         worksheets = {}
         seen_ranges = {}
@@ -1337,7 +1440,8 @@ class Workbook(xmlwriter.XMLwriter):
                 # in a chart series formula.
                 if sheetname not in worksheets:
                     warn("Unknown worksheet reference '%s' in range "
-                         "'%s' passed to add_series()" % (sheetname, c_range))
+                         "'%s' passed to add_series()"
+                         % (force_unicode(sheetname), force_unicode(c_range)))
                     chart.formula_data[r_id] = []
                     seen_ranges[c_range] = []
                     continue
@@ -1378,8 +1482,13 @@ class Workbook(xmlwriter.XMLwriter):
         sheetname = sheetname.strip("'")
         sheetname = sheetname.replace("''", "'")
 
-        (row_start, col_start) = xl_cell_to_rowcol(cell_1)
-        (row_end, col_end) = xl_cell_to_rowcol(cell_2)
+        try:
+            # Get the row, col values from the Excel ranges. We do this in a
+            # try block for ranges that can't be parsed such as defined names.
+            (row_start, col_start) = xl_cell_to_rowcol(cell_1)
+            (row_end, col_end) = xl_cell_to_rowcol(cell_2)
+        except:
+            return None, None
 
         # We only handle 1D ranges.
         if row_start != row_end and col_start != col_end:

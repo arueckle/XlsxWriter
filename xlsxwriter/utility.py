@@ -2,7 +2,7 @@
 #
 # Worksheet - A class for writing Excel Worksheets.
 #
-# Copyright 2013-2015, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2016, John McNamara, jmcnamara@cpan.org
 #
 import re
 import datetime
@@ -36,7 +36,7 @@ def xl_rowcol_to_cell(row, col, row_abs=False, col_abs=False):
 
 def xl_rowcol_to_cell_fast(row, col):
     """
-    Optimised version of the xl_rowcol_to_cell function. Only used internally.
+    Optimized version of the xl_rowcol_to_cell function. Only used internally.
 
     Args:
        row: The cell row.    Int.
@@ -257,7 +257,7 @@ def quote_sheetname(sheetname):
 
 def xl_color(color):
     # Used in conjunction with the XlsxWriter *color() methods to convert
-    # a colour name into an RGB formatted string. These colours are for
+    # a color name into an RGB formatted string. These colors are for
     # backward compatibility with older versions of Excel.
     named_colors = {
         'black': '#000000',
@@ -289,10 +289,10 @@ def xl_color(color):
 
 
 def get_rgb_color(color):
-    # Convert the user specified colour to an RGB colour.
+    # Convert the user specified color to an RGB color.
     rgb_color = xl_color(color)
 
-    # Remove leading FF from RGB colour for charts.
+    # Remove leading FF from RGB color for charts.
     rgb_color = re.sub(r'^FF', '', rgb_color)
 
     return rgb_color
@@ -609,7 +609,23 @@ def supported_datetime(dt):
                            datetime.timedelta)))
 
 
-def datetime_to_excel_datetime(dt_obj, date_1904):
+def remove_datetime_timezone(dt_obj, remove_timezone):
+    # Excel doesn't support timezones in datetimes/times so we remove the
+    # tzinfo from the object if the user has specified that option in the
+    # constructor.
+    if remove_timezone:
+        dt_obj = dt_obj.replace(tzinfo=None)
+    else:
+        if dt_obj.tzinfo:
+            raise TypeError(
+                "Excel doesn't support timezones in datetimes. "
+                "Set the tzinfo in the datetime/time object to None or "
+                "use the 'remove_timezone' Workbook() option")
+
+    return dt_obj
+
+
+def datetime_to_excel_datetime(dt_obj, date_1904, remove_timezone):
     # Convert a datetime object to an Excel serial date and time. The integer
     # part of the number stores the number of days since the epoch and the
     # fractional part stores the percentage of the day.
@@ -624,12 +640,14 @@ def datetime_to_excel_datetime(dt_obj, date_1904):
     # We handle datetime .datetime, .date and .time objects but convert
     # them to datetime.datetime objects and process them in the same way.
     if isinstance(dt_obj, datetime.datetime):
+        dt_obj = remove_datetime_timezone(dt_obj, remove_timezone)
         delta = dt_obj - epoch
     elif isinstance(dt_obj, datetime.date):
         dt_obj = datetime.datetime.fromordinal(dt_obj.toordinal())
         delta = dt_obj - epoch
     elif isinstance(dt_obj, datetime.time):
         dt_obj = datetime.datetime.combine(epoch, dt_obj)
+        dt_obj = remove_datetime_timezone(dt_obj, remove_timezone)
         delta = dt_obj - epoch
     elif isinstance(dt_obj, datetime.timedelta):
         delta = dt_obj

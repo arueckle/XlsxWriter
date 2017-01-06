@@ -2,7 +2,7 @@
 #
 # Tests for XlsxWriter.
 #
-# Copyright (c), 2013-2015, John McNamara, jmcnamara@cpan.org
+# Copyright (c), 2013-2016, John McNamara, jmcnamara@cpan.org
 #
 
 from ..excel_comparsion_test import ExcelComparisonTest
@@ -52,10 +52,10 @@ class TestCompareXLSXFiles(ExcelComparisonTest):
         chart.add_series({'values': '=Sheet1!$C$1:$C$5'})
 
         chart.set_table({
-            'vertical': 0,
-            'horizontal': 0,
-            'outline': 0,
-            'show_keys': 1
+            'vertical': False,
+            'horizontal': False,
+            'outline': False,
+            'show_keys': True
         })
 
         worksheet.insert_chart('E9', chart)
